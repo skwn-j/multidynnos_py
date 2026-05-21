@@ -64,9 +64,12 @@ multidynnos-py parse nodes.csv edges.csv --at 2.5
 multidynnos-py layout nodes.csv edges.csv --method single --json single_layout.json
 multidynnos-py layout nodes.csv edges.csv --method multi --json multi_layout.json
 multidynnos-py layout-events raw/rugby.csv --method multi
+multidynnos-py layout-events --input_path raw/rugby.csv --output_path output/rugby --method multi
 multidynnos-py layout-events raw/rugby.csv --method multi --visualize 8
 multidynnos-py layout-events raw/rugby.csv --method multi --visualize 8 --show-labels
-multidynnos-py layout-events raw/collegemsg.csv --method multi --time-bins 100 --visualize 8
+multidynnos-py layout-events raw/collegemsg.csv --method multi --time-bins 8 --visualize 8
+multidynnos-py layout-events raw/collegemsg.csv --method multi --event-bins 64 --visualize
+multidynnos-py layout-events --input_path raw/rugby.csv --output_path output/rugby_0.5 --method multi --time-bins 64 --visualize 64 --aspect-ratio 0.5
 ```
 
 When working in the project conda environment:
@@ -75,21 +78,30 @@ When working in the project conda environment:
 conda run -n aspgd multidynnos-py parse nodes.csv edges.csv --json graph.json
 conda run -n aspgd multidynnos-py layout nodes.csv edges.csv --method multi --json layout.json
 conda run -n aspgd python -m multidynnos_py.cli layout-events raw/rugby.csv --method multi
+conda run -n aspgd python -m multidynnos_py.cli layout-events --input_path raw/rugby.csv --output_path output/rugby --method multi
 conda run -n aspgd python -m multidynnos_py.cli layout-events raw/rugby.csv --method multi --visualize 8
-conda run -n aspgd python -m multidynnos_py.cli layout-events raw/collegemsg.csv --method multi --time-bins 100 --visualize 8
+conda run -n aspgd python -m multidynnos_py.cli layout-events raw/collegemsg.csv --method multi --time-bins 8 --visualize 8
+conda run -n aspgd python -m multidynnos_py.cli layout-events raw/collegemsg.csv --method multi --event-bins 64 --visualize
+conda run -n aspgd python -m multidynnos_py.cli layout-events --input_path raw/rugby.csv --output_path output/rugby_0.5 --method multi --time-bins 64 --visualize 64 --aspect-ratio 0.5
 conda run -n aspgd python -m pytest
 ```
 
 When a layout command is run without `--json`, the layout is written to `output/<dataset-name>/layout.json`.
-When `--visualize N` is supplied to `layout` or `layout-events`, the command also renders `N` edge-aware snapshots to `output/<dataset-name>/figures/`.
+For event layouts, `--input_path` can be used instead of the positional input file, and `--output_path` sets the exact result directory. For example, `--output_path output/rugby` writes `layout.json`, `snapshots/`, and `figures/` under `output/rugby/`.
+Use `--aspect-ratio R` to affine-scale generated layout coordinates to `width / height = R` before writing `layout.json` and before rendering figures. For example, `--aspect-ratio 0.5` makes the layout width half of its height.
+When `--visualize N` is supplied to `layout` or `layout-events`, the command also renders `N` edge-aware snapshots to `output/<dataset-name>/figures/`. If `--visualize` is supplied without `N`, all currently available bins are rendered.
+Rendered snapshot figures omit titles by default.
 For large event datasets, `--time-bins N` aggregates raw event timestamps into `N` uniform temporal bins before layout; if omitted, the original event timestamps are used.
-When `--time-bins N` is used, the binned static graph for each bin is also written as headerless directed `src,dst,count` CSV files:
+Use `--event-bins K` instead to split the input stream in order into exactly `K` event-count bins. Event-bin layouts use bin indices as the layout time axis.
+When `--time-bins N` or `--event-bins K` is used, the binned static graph for each bin is also written as headerless directed `src,dst,count` CSV files:
 
 ```text
 output/<dataset-name>/snapshots/
   snapshot_000.csv
   snapshot_001.csv
 ```
+
+When `layout-events` uses `--time-bins N --visualize` or `--event-bins K --visualize`, each figure filters visible nodes to the source/target IDs present in the matching `snapshot_XXX.csv` file. `render-snapshots` also uses a sibling `snapshots/` directory by default when every required `snapshot_XXX.csv` file exists. This keeps the rendered node set aligned with the exported binned event graph.
 
 ## Layout And Small-Multiple Export
 
@@ -140,6 +152,7 @@ python -m multidynnos_py.cli render-snapshots \
   --layout output/rugby/layout.json \
   --num-snapshots 8 \
   --edges raw/rugby.csv \
+  --snapshot-nodes-dir output/rugby/snapshots \
   --show-labels \
   --output-root output
 ```

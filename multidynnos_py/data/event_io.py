@@ -174,14 +174,19 @@ def build_graph_from_edge_events(
     *,
     event_duration: float = 0.0,
     time_bins: int | None = None,
+    event_bins: int | None = None,
 ) -> DynamicGraph:
     """Build a dynamic graph from timestamped edge events."""
 
     if event_duration < 0.0:
         raise ValueError("event_duration must be non-negative.")
+    if time_bins is not None and event_bins is not None:
+        raise ValueError("Use either time_bins or event_bins, not both.")
     events = list(edge_events)
     if time_bins is not None:
         return build_binned_graph_from_edge_events(events, time_bins=time_bins)
+    if event_bins is not None:
+        return build_event_binned_graph_from_edge_events(events, event_bins=event_bins)
 
     graph = DynamicGraph()
     for event in events:
@@ -222,6 +227,37 @@ def export_binned_edge_event_snapshots(
         with csv_path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, lineterminator="\n")
             for (source_id, target_id), count in sorted(edge_bins[bin_index].items()):
+                writer.writerow([source_id, target_id, str(count)])
+        written_paths.append(csv_path)
+    return written_paths
+
+
+def export_event_binned_edge_event_snapshots(
+    edge_events: Iterable[EdgeEvent],
+    *,
+    event_bins: int,
+    output_dir: str | Path,
+) -> list[Path]:
+    """Write K headerless ``src,dst,count`` CSVs after equally splitting input events."""
+
+    if event_bins <= 0:
+        raise ValueError("event_bins must be a positive integer.")
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    events = list(edge_events)
+    chunks = _split_events_into_bins(events, event_bins)
+
+    written_paths: list[Path] = []
+    for bin_index, chunk in enumerate(chunks):
+        csv_path = output_path / f"snapshot_{bin_index:03d}.csv"
+        counts: dict[tuple[str, str], int] = {}
+        for event in chunk:
+            directed_key = (event.source_id, event.target_id)
+            counts[directed_key] = counts.get(directed_key, 0) + 1
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle, lineterminator="\n")
+            for (source_id, target_id), count in sorted(counts.items()):
                 writer.writerow([source_id, target_id, str(count)])
         written_paths.append(csv_path)
     return written_paths
@@ -269,6 +305,34 @@ def build_binned_graph_from_edge_events(
     return graph
 
 
+def build_event_binned_graph_from_edge_events(
+    edge_events: Iterable[EdgeEvent],
+    *,
+    event_bins: int,
+) -> DynamicGraph:
+    """Build a dynamic graph by splitting input-order events into K bins."""
+
+    if event_bins <= 0:
+        raise ValueError("event_bins must be a positive integer.")
+
+    graph = DynamicGraph()
+    events = list(edge_events)
+    for bin_index, chunk in enumerate(_split_events_into_bins(events, event_bins)):
+        interval = Interval.closed(float(bin_index), float(bin_index + 1))
+        node_ids: set[str] = set()
+        edge_keys: set[tuple[str, str]] = set()
+        for event in chunk:
+            node_ids.add(event.source_id)
+            node_ids.add(event.target_id)
+            edge_keys.add(canonical_edge_key(event.source_id, event.target_id))
+
+        for node_id in sorted(node_ids):
+            graph.add_node_presence(node_id, interval)
+        for source_id, target_id in sorted(edge_keys):
+            graph.add_edge_presence(source_id, target_id, interval)
+    return graph
+
+
 def load_edge_event_graph(
     event_file: str | Path,
     *,
@@ -276,6 +340,7 @@ def load_edge_event_graph(
     skip_invalid: bool = False,
     has_header: bool | None = None,
     time_bins: int | None = None,
+    event_bins: int | None = None,
 ) -> DynamicGraph:
     """Load an edge-event graph from a ``src,dst,timestamp`` text or CSV file."""
 
@@ -285,7 +350,12 @@ def load_edge_event_graph(
         skip_invalid=skip_invalid,
         has_header=has_header,
     )
-    return build_graph_from_edge_events(events, event_duration=event_duration, time_bins=time_bins)
+    return build_graph_from_edge_events(
+        events,
+        event_duration=event_duration,
+        time_bins=time_bins,
+        event_bins=event_bins,
+    )
 
 
 def load_edge_events(
@@ -327,6 +397,18 @@ def _time_bin_index(timestamp: float, start_time: float, end_time: float, time_b
         return 0
     raw_index = int(((timestamp - start_time) / (end_time - start_time)) * time_bins)
     return min(max(raw_index, 0), time_bins - 1)
+
+
+def _split_events_into_bins(events: list[EdgeEvent], event_bins: int) -> list[list[EdgeEvent]]:
+    base_size, remainder = divmod(len(events), event_bins)
+    chunks: list[list[EdgeEvent]] = []
+    start = 0
+    for bin_index in range(event_bins):
+        size = base_size + (1 if bin_index < remainder else 0)
+        end = start + size
+        chunks.append(events[start:end])
+        start = end
+    return chunks
 
 
 def _format_float(value: float) -> str:

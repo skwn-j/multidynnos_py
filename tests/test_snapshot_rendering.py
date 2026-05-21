@@ -11,6 +11,7 @@ from multidynnos_py.visualization.snapshot_rendering import (
     active_edges_for_window,
     infer_dataset_name,
     load_edges_csv,
+    load_snapshot_csv_node_ids,
     render_layout_snapshots,
     sample_node_positions_for_window,
 )
@@ -56,6 +57,24 @@ def test_sample_node_positions_mean_in_window() -> None:
         trajectories,
         SnapshotWindow(index=0, start=0.0, end=3.0),
         position_policy="mean_in_window",
+    )
+
+    assert positions == {"A": (1.0, 2.0)}
+
+
+def test_sample_node_positions_filters_allowed_nodes_after_position_selection() -> None:
+    trajectories = {
+        "A": [
+            {"time": 0.0, "x": 0.0, "y": 0.0},
+            {"time": 2.0, "x": 2.0, "y": 4.0},
+        ],
+        "B": [{"time": 0.0, "x": 10.0, "y": 10.0}],
+    }
+    positions = sample_node_positions_for_window(
+        trajectories,
+        SnapshotWindow(index=0, start=0.0, end=3.0),
+        position_policy="mean_in_window",
+        allowed_nodes={"A"},
     )
 
     assert positions == {"A": (1.0, 2.0)}
@@ -118,6 +137,79 @@ def test_render_snapshots_creates_files(tmp_path) -> None:
     assert manifest["snapshots"][0]["num_edges"] == 1
 
 
+def test_render_snapshots_filters_visible_nodes_from_snapshot_csv(tmp_path) -> None:
+    layout_path = tmp_path / "tiny_layout.json"
+    snapshots_dir = tmp_path / "snapshots"
+    snapshots_dir.mkdir()
+    payload = {
+        "config": {},
+        "sample_times": [0.0, 10.0],
+        "trajectories": {
+            "A": [{"time": 0.0, "x": 0.0, "y": 0.0}],
+            "B": [{"time": 0.0, "x": 1.0, "y": 0.0}],
+            "C": [{"time": 0.0, "x": 2.0, "y": 0.0}],
+        },
+        "edges": [
+            {"source": "A", "target": "B"},
+            {"source": "B", "target": "C"},
+        ],
+    }
+    layout_path.write_text(json.dumps(payload), encoding="utf-8")
+    (snapshots_dir / "snapshot_000.csv").write_text("A,B,3\n", encoding="utf-8")
+
+    assert load_snapshot_csv_node_ids(snapshots_dir / "snapshot_000.csv") == {"A", "B"}
+    results = render_layout_snapshots(
+        layout_path,
+        n_snapshots=1,
+        snapshot_nodes_dir=snapshots_dir,
+        output_root=tmp_path / "output",
+        title_format="none",
+    )
+    manifest = json.loads(
+        (tmp_path / "output" / "tiny" / "figures" / "snapshots_manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert results[0].num_nodes == 2
+    assert results[0].num_edges == 1
+    assert results[0].skipped_edges == 1
+    assert manifest["snapshot_nodes_dir"] == str(snapshots_dir)
+
+
+def test_render_snapshots_auto_uses_sibling_snapshot_directory(tmp_path) -> None:
+    dataset_dir = tmp_path / "output" / "tiny"
+    layout_path = dataset_dir / "layout.json"
+    snapshots_dir = dataset_dir / "snapshots"
+    snapshots_dir.mkdir(parents=True)
+    payload = {
+        "config": {},
+        "sample_times": [0.0, 10.0],
+        "trajectories": {
+            "A": [{"time": 0.0, "x": 0.0, "y": 0.0}],
+            "B": [{"time": 0.0, "x": 1.0, "y": 0.0}],
+            "C": [{"time": 0.0, "x": 2.0, "y": 0.0}],
+        },
+        "edges": [
+            {"source": "A", "target": "B"},
+            {"source": "B", "target": "C"},
+        ],
+    }
+    layout_path.write_text(json.dumps(payload), encoding="utf-8")
+    (snapshots_dir / "snapshot_000.csv").write_text("A,B,1\n", encoding="utf-8")
+
+    results = render_layout_snapshots(
+        layout_path,
+        n_snapshots=1,
+        output_root=tmp_path / "output",
+        title_format="none",
+    )
+    manifest = json.loads((dataset_dir / "figures" / "snapshots_manifest.json").read_text(encoding="utf-8"))
+
+    assert results[0].num_nodes == 2
+    assert results[0].num_edges == 1
+    assert results[0].skipped_edges == 1
+    assert manifest["snapshot_nodes_dir"] == str(snapshots_dir)
+
+
 def test_no_edges_requires_explicit_nodes_only(tmp_path) -> None:
     layout_path = tmp_path / "tiny_layout.json"
     _write_tiny_layout(layout_path)
@@ -178,8 +270,6 @@ def test_cli_render_snapshots_nodes_only(tmp_path, capsys) -> None:
             "--allow-nodes-only",
             "--output-root",
             str(tmp_path / "output"),
-            "--title-format",
-            "none",
         ]
     )
     captured = capsys.readouterr()

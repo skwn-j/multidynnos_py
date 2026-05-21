@@ -5,8 +5,10 @@ from io import StringIO
 
 from multidynnos_py.data.event_io import (
     build_binned_graph_from_edge_events,
+    build_event_binned_graph_from_edge_events,
     build_graph_from_edge_events,
     export_binned_edge_event_snapshots,
+    export_event_binned_edge_event_snapshots,
     load_edge_event_graph,
     parse_edge_event_line,
     parse_edge_events,
@@ -121,3 +123,38 @@ def test_export_binned_edge_event_snapshots_writes_directed_counts_without_heade
     assert [path.name for path in paths] == ["snapshot_000.csv", "snapshot_001.csv"]
     assert paths[0].read_text(encoding="utf-8") == "A,B,2\nB,A,1\n"
     assert paths[1].read_text(encoding="utf-8") == "C,B,1\n"
+
+
+def test_build_event_binned_graph_from_edge_events_groups_by_input_order() -> None:
+    events = parse_edge_events(["A,B,100", "C,D,0", "A,C,50", "B,D,70", "A,D,90"])
+
+    graph = build_event_binned_graph_from_edge_events(events, event_bins=3)
+
+    assert graph.nodes["A"].appearances[0].start == 0.0
+    assert graph.nodes["A"].appearances[-1].end == 3.0
+    assert graph.get_edge_between("A", "B").presence_at(0.5)
+    assert graph.get_edge_between("C", "D").presence_at(0.5)
+    assert graph.get_edge_between("A", "C").presence_at(1.5)
+    assert graph.get_edge_between("B", "D").presence_at(1.5)
+    assert graph.get_edge_between("A", "D").presence_at(2.5)
+
+
+def test_export_event_binned_edge_event_snapshots_writes_requested_snapshot_count(tmp_path) -> None:
+    events = parse_edge_events(["A,B,100", "C,D,0", "A,B,50", "B,A,70", "A,B,90"])
+
+    paths = export_event_binned_edge_event_snapshots(events, event_bins=3, output_dir=tmp_path / "snapshots")
+
+    assert [path.name for path in paths] == ["snapshot_000.csv", "snapshot_001.csv", "snapshot_002.csv"]
+    assert paths[0].read_text(encoding="utf-8") == "A,B,1\nC,D,1\n"
+    assert paths[1].read_text(encoding="utf-8") == "A,B,1\nB,A,1\n"
+    assert paths[2].read_text(encoding="utf-8") == "A,B,1\n"
+
+
+def test_export_event_binned_edge_event_snapshots_treats_event_bins_as_snapshot_count(tmp_path) -> None:
+    events = parse_edge_events(["A,B,0", "C,D,1", "A,B,2", "B,A,3", "E,F,4"])
+
+    paths = export_event_binned_edge_event_snapshots(events, event_bins=2, output_dir=tmp_path / "snapshots")
+
+    assert [path.name for path in paths] == ["snapshot_000.csv", "snapshot_001.csv"]
+    assert paths[0].read_text(encoding="utf-8") == "A,B,2\nC,D,1\n"
+    assert paths[1].read_text(encoding="utf-8") == "B,A,1\nE,F,1\n"

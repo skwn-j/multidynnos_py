@@ -10,10 +10,12 @@ from multidynnos_py.data.event_io import (
     EdgeEvent,
     build_graph_from_edge_events,
     export_binned_edge_event_snapshots,
+    export_event_binned_edge_event_snapshots,
     load_edge_events,
 )
 from multidynnos_py.data.graph import DynamicGraph
 from multidynnos_py.data.io import export_graph_csv, export_graph_json, load_custom_graph
+from multidynnos_py.experiments.aspect_ratio import affine_scale_layout
 from multidynnos_py.layout.dynnoslice import DynamicLayout, DynNoSliceConfig, run_dynnoslice
 from multidynnos_py.layout.multidynnos import MultiDynNoSConfig, run_multidynnos
 from multidynnos_py.visualization.snapshot_rendering import render_layout_snapshots
@@ -35,13 +37,28 @@ def build_parser() -> argparse.ArgumentParser:
     parse_parser.set_defaults(func=_run_parse)
 
     event_parser = subparsers.add_parser("parse-events", help="Parse an edge-event file with source,target,timestamp rows.")
-    event_parser.add_argument("event_file", type=Path, help="Text or CSV file with source,target,timestamp rows.")
+    event_parser.add_argument("event_file", nargs="?", type=Path, help="Text or CSV file with source,target,timestamp rows.")
+    event_parser.add_argument(
+        "--input-path",
+        "--input_path",
+        dest="input_path",
+        type=Path,
+        help="Text or CSV file with source,target,timestamp rows.",
+    )
+    event_parser.add_argument(
+        "--output-path",
+        "--output_path",
+        dest="output_path",
+        type=Path,
+        help="Directory for generated outputs such as binned snapshots.",
+    )
     event_parser.add_argument("--event-duration", type=float, default=0.0, help="Duration assigned to each timestamped event.")
     event_parser.add_argument("--json", type=Path, help="Write the parsed graph as JSON.")
     event_parser.add_argument("--at", type=float, help="Print active node and edge counts at the supplied time.")
     event_parser.add_argument("--skip-invalid", action="store_true", help="Skip invalid non-blank input rows.")
     event_parser.add_argument("--has-header", action="store_true", help="Treat the first non-blank row as a header.")
     event_parser.add_argument("--time-bins", type=int, help="Aggregate events into this many temporal bins before graph construction.")
+    event_parser.add_argument("--event-bins", type=int, help="Split input-order events evenly into this many bins before graph construction.")
     event_parser.set_defaults(func=_run_parse_events)
 
     layout_parser = subparsers.add_parser("layout", help="Run a dynamic layout on a custom MultiDynNoS graph.")
@@ -58,13 +75,38 @@ def build_parser() -> argparse.ArgumentParser:
     layout_parser.add_argument("--min-coarse-nodes", type=int, default=2, help="Stop coarsening at or below this node count.")
     layout_parser.add_argument("--use-sfdp", action="store_true", help="Try GraphViz sfdp for static initialization.")
     layout_parser.add_argument("--postprocess-passes", type=int, default=1, help="Flexible trajectory smoothing passes.")
+    layout_parser.add_argument(
+        "--aspect-ratio",
+        type=float,
+        help="Scale layout coordinates to this width/height ratio before writing JSON or rendering.",
+    )
     layout_parser.add_argument("--skip-invalid", action="store_true", help="Skip invalid non-blank input rows.")
-    layout_parser.add_argument("--visualize", type=int, help="After layout, render this many temporal snapshot figures.")
+    layout_parser.add_argument(
+        "--visualize",
+        nargs="?",
+        const=-1,
+        type=int,
+        help="After layout, render snapshot figures. Omit N to render all current bins.",
+    )
     layout_parser.add_argument("--show-labels", action="store_true", help="Show node labels in rendered snapshots.")
     layout_parser.set_defaults(func=_run_layout)
 
     event_layout_parser = subparsers.add_parser("layout-events", help="Run a dynamic layout on an edge-event file.")
-    event_layout_parser.add_argument("event_file", type=Path, help="Text or CSV file with source,target,timestamp rows.")
+    event_layout_parser.add_argument("event_file", nargs="?", type=Path, help="Text or CSV file with source,target,timestamp rows.")
+    event_layout_parser.add_argument(
+        "--input-path",
+        "--input_path",
+        dest="input_path",
+        type=Path,
+        help="Text or CSV file with source,target,timestamp rows.",
+    )
+    event_layout_parser.add_argument(
+        "--output-path",
+        "--output_path",
+        dest="output_path",
+        type=Path,
+        help="Directory where layout.json, snapshots, and figures are written.",
+    )
     event_layout_parser.add_argument("--event-duration", type=float, default=0.0, help="Duration assigned to each timestamped event.")
     event_layout_parser.add_argument("--method", choices=["single", "multi"], default="single", help="Layout method to run.")
     event_layout_parser.add_argument("--json", type=Path, help="Write the layout as JSON.")
@@ -77,10 +119,22 @@ def build_parser() -> argparse.ArgumentParser:
     event_layout_parser.add_argument("--min-coarse-nodes", type=int, default=2, help="Stop coarsening at or below this node count.")
     event_layout_parser.add_argument("--use-sfdp", action="store_true", help="Try GraphViz sfdp for static initialization.")
     event_layout_parser.add_argument("--postprocess-passes", type=int, default=1, help="Flexible trajectory smoothing passes.")
+    event_layout_parser.add_argument(
+        "--aspect-ratio",
+        type=float,
+        help="Scale layout coordinates to this width/height ratio before writing JSON or rendering.",
+    )
     event_layout_parser.add_argument("--skip-invalid", action="store_true", help="Skip invalid non-blank input rows.")
     event_layout_parser.add_argument("--has-header", action="store_true", help="Treat the first non-blank row as a header.")
     event_layout_parser.add_argument("--time-bins", type=int, help="Aggregate events into this many temporal bins before layout.")
-    event_layout_parser.add_argument("--visualize", type=int, help="After layout, render this many temporal snapshot figures.")
+    event_layout_parser.add_argument("--event-bins", type=int, help="Split input-order events evenly into this many bins before layout.")
+    event_layout_parser.add_argument(
+        "--visualize",
+        nargs="?",
+        const=-1,
+        type=int,
+        help="After layout, render snapshot figures. Omit N to render all current bins.",
+    )
     event_layout_parser.add_argument("--show-labels", action="store_true", help="Show node labels in rendered snapshots.")
     event_layout_parser.set_defaults(func=_run_layout_events)
 
@@ -88,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--layout", type=Path, required=True, help="Layout JSON produced by the layout pipeline.")
     render_parser.add_argument("--num-snapshots", type=int, required=True, help="Number of temporal snapshot windows to render.")
     render_parser.add_argument("--edges", type=Path, help="Optional edge CSV with source,target and temporal columns.")
+    render_parser.add_argument(
+        "--snapshot-nodes-dir",
+        type=Path,
+        help="Optional directory with headerless snapshot_XXX.csv files used to decide visible nodes.",
+    )
     render_parser.add_argument("--dataset-name", help="Optional dataset-name override for output paths.")
     render_parser.add_argument("--output-root", type=Path, default=Path("output"), help="Root output directory.")
     render_parser.add_argument("--format", choices=["png", "svg", "pdf"], default="png", help="Output image format.")
@@ -111,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument(
         "--title-format",
         choices=["index_datetime", "datetime_range", "none"],
-        default="index_datetime",
+        default="none",
         help="Snapshot title format.",
     )
     render_parser.add_argument("--timezone", default="UTC", help="Timezone for ISO timestamps. Currently only UTC is supported.")
@@ -145,7 +204,13 @@ def _run_parse(args: argparse.Namespace) -> int:
 
 def _run_parse_events(args: argparse.Namespace) -> int:
     events = _load_events(args)
-    graph = build_graph_from_edge_events(events, event_duration=args.event_duration, time_bins=args.time_bins)
+    _validate_binning_args(args)
+    graph = build_graph_from_edge_events(
+        events,
+        event_duration=args.event_duration,
+        time_bins=args.time_bins,
+        event_bins=args.event_bins,
+    )
     _write_binned_snapshots_if_requested(args, events)
 
     if args.json is not None:
@@ -162,6 +227,8 @@ def _run_parse_events(args: argparse.Namespace) -> int:
 def _run_layout(args: argparse.Namespace) -> int:
     graph = load_custom_graph(args.node_file, args.edge_file, skip_invalid=args.skip_invalid)
     layout = _layout_graph(args, graph)
+    layout = _scale_layout_if_requested(args, layout)
+    layout = _extend_event_bin_time_range_if_needed(args, layout)
     output_path = _write_layout(args, layout, graph)
 
     print(
@@ -169,15 +236,28 @@ def _run_layout(args: argparse.Namespace) -> int:
         f"{len(graph.edges)} edges, and {len(layout.sample_times)} sampled times."
     )
     print(f"Wrote layout to {output_path}.")
-    _render_visualization_if_requested(args, output_path, edges_path=args.edge_file)
+    _render_visualization_if_requested(
+        args,
+        output_path,
+        edges_path=args.edge_file,
+        default_snapshots=_default_snapshot_count(layout),
+    )
     return 0
 
 
 def _run_layout_events(args: argparse.Namespace) -> int:
     events = _load_events(args)
-    graph = build_graph_from_edge_events(events, event_duration=args.event_duration, time_bins=args.time_bins)
-    _write_binned_snapshots_if_requested(args, events)
+    _validate_binning_args(args)
+    graph = build_graph_from_edge_events(
+        events,
+        event_duration=args.event_duration,
+        time_bins=args.time_bins,
+        event_bins=args.event_bins,
+    )
+    snapshot_paths = _write_binned_snapshots_if_requested(args, events)
     layout = _layout_graph(args, graph)
+    layout = _scale_layout_if_requested(args, layout)
+    layout = _extend_event_bin_time_range_if_needed(args, layout)
     output_path = _write_layout(args, layout, graph)
 
     print(
@@ -185,7 +265,14 @@ def _run_layout_events(args: argparse.Namespace) -> int:
         f"{len(graph.edges)} edges, and {len(layout.sample_times)} sampled times from edge events."
     )
     print(f"Wrote layout to {output_path}.")
-    _render_visualization_if_requested(args, output_path, edges_path=args.event_file)
+    snapshot_nodes_dir = snapshot_paths[0].parent if snapshot_paths else None
+    _render_visualization_if_requested(
+        args,
+        output_path,
+        edges_path=_event_file_from_args(args),
+        snapshot_nodes_dir=snapshot_nodes_dir,
+        default_snapshots=len(snapshot_paths) if snapshot_paths else _default_snapshot_count(layout),
+    )
     return 0
 
 
@@ -213,6 +300,42 @@ def _layout_graph(args: argparse.Namespace, graph: DynamicGraph) -> DynamicLayou
     return layout
 
 
+def _scale_layout_if_requested(args: argparse.Namespace, layout: DynamicLayout) -> DynamicLayout:
+    aspect_ratio = getattr(args, "aspect_ratio", None)
+    if aspect_ratio is None:
+        return layout
+    if aspect_ratio <= 0:
+        raise SystemExit("--aspect-ratio must be positive.")
+    return affine_scale_layout(layout, target_aspect_ratio=aspect_ratio)
+
+
+def _extend_event_bin_time_range_if_needed(args: argparse.Namespace, layout: DynamicLayout) -> DynamicLayout:
+    event_bins = getattr(args, "event_bins", None)
+    if event_bins is None or not layout.sample_times:
+        return layout
+    sample_times = sorted({*layout.sample_times, 0.0, float(event_bins)})
+    if sample_times == layout.sample_times:
+        return layout
+    return DynamicLayout(
+        trajectories=layout.trajectories,
+        sample_times=sample_times,
+        config=layout.config,
+    )
+
+
+def _validate_binning_args(args: argparse.Namespace) -> None:
+    if args.time_bins is not None and args.event_bins is not None:
+        raise SystemExit("Use either --time-bins or --event-bins, not both.")
+    if args.time_bins is not None and args.time_bins <= 0:
+        raise SystemExit("--time-bins must be a positive integer.")
+    if args.event_bins is not None and args.event_bins <= 0:
+        raise SystemExit("--event-bins must be a positive integer.")
+
+
+def _default_snapshot_count(layout: DynamicLayout) -> int:
+    return max(len(layout.sample_times) - 1, 1)
+
+
 def _write_layout(args: argparse.Namespace, layout: DynamicLayout, graph: DynamicGraph) -> Path:
     output_path = args.json if args.json is not None else _default_layout_output_path(args)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -223,53 +346,86 @@ def _write_layout(args: argparse.Namespace, layout: DynamicLayout, graph: Dynami
 
 
 def _default_layout_output_path(args: argparse.Namespace) -> Path:
-    dataset_path = getattr(args, "event_file", None) or getattr(args, "node_file", None)
+    output_path = getattr(args, "output_path", None)
+    if output_path is not None:
+        return output_path / "layout.json"
+    dataset_path = getattr(args, "input_path", None) or getattr(args, "event_file", None) or getattr(args, "node_file", None)
     dataset_name = dataset_path.stem if dataset_path is not None else "layout"
     return Path("output") / dataset_name / "layout.json"
 
 
 def _load_events(args: argparse.Namespace) -> list[EdgeEvent]:
     return load_edge_events(
-        args.event_file,
+        _event_file_from_args(args),
         skip_invalid=args.skip_invalid,
         has_header=True if args.has_header else None,
     )
 
 
 def _write_binned_snapshots_if_requested(args: argparse.Namespace, events: list[EdgeEvent]) -> list[Path]:
-    if args.time_bins is None:
+    if args.time_bins is None and getattr(args, "event_bins", None) is None:
         return []
-    dataset_name = _dataset_name_from_input(args)
-    output_dir = Path("output") / dataset_name / "snapshots"
-    paths = export_binned_edge_event_snapshots(events, time_bins=args.time_bins, output_dir=output_dir)
+    output_dir = _dataset_output_dir(args) / "snapshots"
+    if getattr(args, "event_bins", None) is not None:
+        paths = export_event_binned_edge_event_snapshots(
+            events,
+            event_bins=args.event_bins,
+            output_dir=output_dir,
+        )
+    else:
+        paths = export_binned_edge_event_snapshots(events, time_bins=args.time_bins, output_dir=output_dir)
     print(f"Wrote {len(paths)} binned graph CSV snapshots to {output_dir}.")
     return paths
 
 
-def _render_visualization_if_requested(args: argparse.Namespace, layout_path: Path, *, edges_path: Path) -> None:
+def _render_visualization_if_requested(
+    args: argparse.Namespace,
+    layout_path: Path,
+    *,
+    edges_path: Path,
+    snapshot_nodes_dir: Path | None = None,
+    default_snapshots: int | None = None,
+) -> None:
     if args.visualize is None:
         return
-    if args.visualize <= 0:
+    n_snapshots = default_snapshots if args.visualize == -1 else args.visualize
+    if n_snapshots is None:
+        raise SystemExit("--visualize without a number requires an available snapshot count.")
+    if n_snapshots <= 0:
         raise SystemExit("--visualize must be a positive integer.")
+    if snapshot_nodes_dir is not None and default_snapshots is not None and n_snapshots != default_snapshots:
+        raise SystemExit("--visualize must match the number of binned snapshot CSV files when filtering visible nodes.")
 
     dataset_name = _dataset_name_from_input(args)
     output_root = _output_root_for_layout_path(layout_path)
     results = render_layout_snapshots(
         layout_path=layout_path,
-        n_snapshots=args.visualize,
+        n_snapshots=n_snapshots,
+        snapshot_nodes_dir=snapshot_nodes_dir,
         dataset_name=dataset_name,
         output_root=output_root,
         position_policy="mean_in_window",
         show_labels=args.show_labels,
-        title_format="index_datetime",
+        figure_size=_figure_size_from_aspect_ratio(getattr(args, "aspect_ratio", None)),
+        title_format="none",
     )
     figures_dir = Path(results[0].figure_path).parent if results else output_root / dataset_name / "figures"
     print(f"Rendered {len(results)} snapshots to {figures_dir}.")
 
 
 def _dataset_name_from_input(args: argparse.Namespace) -> str:
-    dataset_path = getattr(args, "event_file", None) or getattr(args, "node_file", None)
+    output_path = getattr(args, "output_path", None)
+    if output_path is not None:
+        return output_path.name
+    dataset_path = getattr(args, "input_path", None) or getattr(args, "event_file", None) or getattr(args, "node_file", None)
     return dataset_path.stem if dataset_path is not None else "layout"
+
+
+def _dataset_output_dir(args: argparse.Namespace) -> Path:
+    output_path = getattr(args, "output_path", None)
+    if output_path is not None:
+        return output_path
+    return Path("output") / _dataset_name_from_input(args)
 
 
 def _output_root_for_layout_path(layout_path: Path) -> Path:
@@ -278,11 +434,32 @@ def _output_root_for_layout_path(layout_path: Path) -> Path:
     return Path("output")
 
 
+def _figure_size_from_aspect_ratio(aspect_ratio: float | None) -> tuple[float, float]:
+    if aspect_ratio is None:
+        return (6, 6)
+    if aspect_ratio <= 0:
+        raise SystemExit("--aspect-ratio must be positive.")
+    height = 6.0
+    return (height * aspect_ratio, height)
+
+
+def _event_file_from_args(args: argparse.Namespace) -> Path:
+    event_file = getattr(args, "event_file", None)
+    input_path = getattr(args, "input_path", None)
+    if event_file is not None and input_path is not None and event_file != input_path:
+        raise SystemExit("Provide either the positional event file or --input_path, not both.")
+    path = input_path if input_path is not None else event_file
+    if path is None:
+        raise SystemExit("An event input file is required. Provide a positional file or --input_path.")
+    return path
+
+
 def _run_render_snapshots(args: argparse.Namespace) -> int:
     results = render_layout_snapshots(
         layout_path=args.layout,
         n_snapshots=args.num_snapshots,
         edges_path=args.edges,
+        snapshot_nodes_dir=args.snapshot_nodes_dir,
         dataset_name=args.dataset_name,
         output_root=args.output_root,
         image_format=args.format,

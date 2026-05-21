@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from math import isclose
 
 from multidynnos_py.cli import main
 from multidynnos_py.data.io import build_graph_from_appearances, parse_edge_appearances, parse_node_appearances
@@ -194,9 +195,134 @@ def test_cli_layout_events_visualize_renders_edge_snapshots(tmp_path, monkeypatc
     assert manifest["node_only"] is False
     assert manifest["show_labels"] is True
     assert manifest["edges_path"] is None
+    assert manifest["snapshot_nodes_dir"] == "output/rugby/snapshots"
+    assert [snapshot["num_nodes"] for snapshot in manifest["snapshots"]] == [2, 2]
     assert sum(snapshot["num_edges"] for snapshot in manifest["snapshots"]) == 2
     assert (tmp_path / "output" / "rugby" / "snapshots" / "snapshot_000.csv").read_text(encoding="utf-8") == "A,B,1\n"
     assert (tmp_path / "output" / "rugby" / "snapshots" / "snapshot_001.csv").read_text(encoding="utf-8") == "B,C,1\n"
+
+
+def test_cli_layout_events_accepts_input_path_and_output_path(tmp_path, capsys) -> None:
+    event_file = tmp_path / "rugby.csv"
+    output_dir = tmp_path / "custom" / "rugby"
+    event_file.write_text("A,B,0\nB,C,1\n", encoding="utf-8")
+
+    status = main(
+        [
+            "layout-events",
+            "--input_path",
+            str(event_file),
+            "--output_path",
+            str(output_dir),
+            "--method",
+            "multi",
+            "--iterations",
+            "0",
+            "--max-levels",
+            "1",
+            "--postprocess-passes",
+            "0",
+            "--time-bins",
+            "2",
+            "--visualize",
+            "2",
+        ]
+    )
+    manifest_file = output_dir / "figures" / "snapshots_manifest.json"
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+
+    assert status == 0
+    assert (output_dir / "layout.json").exists()
+    assert (output_dir / "snapshots" / "snapshot_000.csv").read_text(encoding="utf-8") == "A,B,1\n"
+    assert (output_dir / "snapshots" / "snapshot_001.csv").read_text(encoding="utf-8") == "B,C,1\n"
+    assert (output_dir / "figures" / "snapshot_000.png").exists()
+    assert (output_dir / "figures" / "snapshot_001.png").exists()
+    assert manifest["dataset_name"] == "rugby"
+    assert manifest["snapshot_nodes_dir"] == str(output_dir / "snapshots")
+    assert str(output_dir / "layout.json") in captured.out
+
+
+def test_cli_layout_events_aspect_ratio_scales_written_layout(tmp_path) -> None:
+    event_file = tmp_path / "rugby.csv"
+    output_dir = tmp_path / "rugby_0.5"
+    event_file.write_text("A,B,0\nC,D,1\nA,C,2\nB,D,3\n", encoding="utf-8")
+
+    status = main(
+        [
+            "layout-events",
+            "--input_path",
+            str(event_file),
+            "--output_path",
+            str(output_dir),
+            "--method",
+            "multi",
+            "--iterations",
+            "0",
+            "--max-levels",
+            "1",
+            "--postprocess-passes",
+            "0",
+            "--time-bins",
+            "2",
+            "--visualize",
+            "2",
+            "--aspect-ratio",
+            "0.5",
+        ]
+    )
+    payload = json.loads((output_dir / "layout.json").read_text(encoding="utf-8"))
+    points = [
+        point
+        for trajectory in payload["trajectories"].values()
+        for point in trajectory
+    ]
+    width = max(point["x"] for point in points) - min(point["x"] for point in points)
+    height = max(point["y"] for point in points) - min(point["y"] for point in points)
+
+    assert status == 0
+    assert isclose(width / height, 0.5)
+    assert (output_dir / "figures" / "snapshot_000.png").exists()
+
+
+def test_cli_layout_events_event_bins_and_visualize_without_count(tmp_path, capsys) -> None:
+    event_file = tmp_path / "events.csv"
+    output_dir = tmp_path / "event_bins"
+    event_file.write_text("A,B,100\nC,D,0\nA,B,50\nB,A,70\nA,D,90\n", encoding="utf-8")
+
+    status = main(
+        [
+            "layout-events",
+            "--input_path",
+            str(event_file),
+            "--output_path",
+            str(output_dir),
+            "--method",
+            "multi",
+            "--iterations",
+            "0",
+            "--max-levels",
+            "1",
+            "--postprocess-passes",
+            "0",
+            "--event-bins",
+            "3",
+            "--visualize",
+        ]
+    )
+    payload = json.loads((output_dir / "layout.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_dir / "figures" / "snapshots_manifest.json").read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+
+    assert status == 0
+    assert payload["sample_times"] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    assert (output_dir / "snapshots" / "snapshot_000.csv").read_text(encoding="utf-8") == "A,B,1\nC,D,1\n"
+    assert (output_dir / "snapshots" / "snapshot_001.csv").read_text(encoding="utf-8") == "A,B,1\nB,A,1\n"
+    assert (output_dir / "snapshots" / "snapshot_002.csv").read_text(encoding="utf-8") == "A,D,1\n"
+    assert manifest["n_snapshots"] == 3
+    assert [snapshot["num_nodes"] for snapshot in manifest["snapshots"]] == [4, 2, 2]
+    assert (output_dir / "figures" / "snapshot_002.png").exists()
+    assert "Rendered 3 snapshots" in captured.out
 
 
 def test_cli_layout_events_time_bins_limit_layout_sample_times(tmp_path, monkeypatch) -> None:

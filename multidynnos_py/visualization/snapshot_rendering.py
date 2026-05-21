@@ -161,6 +161,7 @@ def sample_node_positions_for_window(
     window: SnapshotWindow,
     position_policy: str = "mean_in_window",
     active_node_policy: str = "in_window",
+    allowed_nodes: set[str] | None = None,
 ) -> dict[str, Position]:
     """Return node positions for one temporal window."""
 
@@ -185,6 +186,8 @@ def sample_node_positions_for_window(
         position = _position_for_policy(samples, samples_in_window, window, position_policy, midpoint_position)
         if position is not None:
             positions[node_id] = position
+    if allowed_nodes is not None:
+        return {node_id: position for node_id, position in positions.items() if node_id in allowed_nodes}
     return positions
 
 
@@ -291,6 +294,7 @@ def render_layout_snapshots(
     layout_path: str | Path,
     n_snapshots: int,
     edges_path: str | Path | None = None,
+    snapshot_nodes_dir: str | Path | None = None,
     dataset_name: str | None = None,
     output_root: str | Path = "output",
     image_format: str = "png",
@@ -300,7 +304,7 @@ def render_layout_snapshots(
     position_policy: str = "mean_in_window",
     dpi: int = 200,
     figure_size: tuple[float, float] = (6, 6),
-    title_format: str = "index_datetime",
+    title_format: str = "none",
     timezone: str = "UTC",
 ) -> list[SnapshotRenderResult]:
     """Render uniformly sampled static snapshots from one layout JSON."""
@@ -313,6 +317,12 @@ def render_layout_snapshots(
     dataset = infer_dataset_name(layout_path, dataset_name)
     figures_dir = Path(output_root) / dataset / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
+    effective_snapshot_nodes_dir = _resolve_snapshot_nodes_dir(layout_path, snapshot_nodes_dir, output_root, dataset, n_snapshots)
+    snapshot_node_sets = (
+        _load_snapshot_node_sets(effective_snapshot_nodes_dir, n_snapshots)
+        if effective_snapshot_nodes_dir is not None
+        else None
+    )
 
     edges = _edges_from_layout(layout)
     if edges_path is not None:
@@ -331,6 +341,7 @@ def render_layout_snapshots(
             window,
             position_policy=position_policy,
             active_node_policy=active_node_policy,
+            allowed_nodes=snapshot_node_sets[window.index] if snapshot_node_sets is not None else None,
         )
         active_edges = [] if node_only else active_edges_for_window(edges, window, set(positions))
         skipped_edges = 0 if node_only else _count_skipped_edges(edges, window, set(positions))
@@ -370,6 +381,7 @@ def render_layout_snapshots(
         "dataset_name": dataset,
         "layout_path": str(layout_path),
         "edges_path": str(edges_path) if edges_path is not None else None,
+        "snapshot_nodes_dir": str(effective_snapshot_nodes_dir) if effective_snapshot_nodes_dir is not None else None,
         "n_snapshots": n_snapshots,
         "node_only": node_only,
         "active_node_policy": active_node_policy,
@@ -388,6 +400,33 @@ def render_layout_snapshots(
         encoding="utf-8",
     )
     return results
+
+
+def load_snapshot_csv_node_ids(path: str | Path) -> set[str]:
+    """Return node IDs that occur as source or target in one headerless snapshot CSV."""
+
+    snapshot_path = Path(path)
+    if not snapshot_path.exists():
+        raise FileNotFoundError(f"Snapshot CSV does not exist: {snapshot_path}")
+
+    node_ids: set[str] = set()
+    rows = csv.reader(snapshot_path.read_text(encoding="utf-8").splitlines())
+    for row_number, row in enumerate(rows, start=1):
+        if not row or all(not field.strip() for field in row):
+            continue
+        if len(row) < 2:
+            raise ValueError(
+                f"Invalid snapshot CSV row {row_number} in {snapshot_path}: expected at least source,target."
+            )
+        source = row[0].strip()
+        target = row[1].strip()
+        if not source or not target:
+            raise ValueError(
+                f"Invalid snapshot CSV row {row_number} in {snapshot_path}: source and target cannot be empty."
+            )
+        node_ids.add(source)
+        node_ids.add(target)
+    return node_ids
 
 
 def compute_bounds_from_positions(positions: dict[str, Position]) -> Bounds | None:
@@ -589,6 +628,45 @@ def _count_skipped_edges(edges: Sequence[EdgeRecord], window: SnapshotWindow, av
         for edge in edges
         if edge.active_in(window) and (edge.source not in available_nodes or edge.target not in available_nodes)
     )
+
+
+def _load_snapshot_node_sets(snapshot_nodes_dir: str | Path, n_snapshots: int) -> list[set[str]]:
+    snapshot_dir = Path(snapshot_nodes_dir)
+    if not snapshot_dir.exists():
+        raise FileNotFoundError(f"Snapshot CSV directory does not exist: {snapshot_dir}")
+    if not snapshot_dir.is_dir():
+        raise ValueError(f"Snapshot CSV path must be a directory: {snapshot_dir}")
+
+    node_sets: list[set[str]] = []
+    for index in range(n_snapshots):
+        node_sets.append(load_snapshot_csv_node_ids(snapshot_dir / f"snapshot_{index:03d}.csv"))
+    return node_sets
+
+
+def _resolve_snapshot_nodes_dir(
+    layout_path: str | Path,
+    snapshot_nodes_dir: str | Path | None,
+    output_root: str | Path,
+    dataset: str,
+    n_snapshots: int,
+) -> Path | None:
+    if snapshot_nodes_dir is not None:
+        return Path(snapshot_nodes_dir)
+
+    candidates = [
+        Path(layout_path).parent / "snapshots",
+        Path(output_root) / dataset / "snapshots",
+    ]
+    for candidate in candidates:
+        if _has_all_snapshot_csvs(candidate, n_snapshots):
+            return candidate
+    return None
+
+
+def _has_all_snapshot_csvs(snapshot_dir: Path, n_snapshots: int) -> bool:
+    if not snapshot_dir.is_dir():
+        return False
+    return all((snapshot_dir / f"snapshot_{index:03d}.csv").exists() for index in range(n_snapshots))
 
 
 def _title_for_window(window: SnapshotWindow, *, title_format: str, timezone: str) -> str | None:
