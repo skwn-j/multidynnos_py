@@ -1,179 +1,199 @@
-# multidynnos-py
+# MultiDynNoS Python
 
-Python research port scaffolding for MultiDynNoS dynamic graph experiments.
+A Python implementation of MultiDynNoS for drawing temporal graphs as continuous
+node trajectories. It reads event or timesliced input, computes a multilevel
+layout, and exports a space-time cube as TimeLighting JSON. It also supports
+ARCOL-based aspect ratio adjustment and optional Numba acceleration for repulsion.
 
-The package currently includes:
-
-- Temporal intervals and presence schedules.
-- Dynamic graph construction from the original MultiDynNoS custom input format.
-- Edge-event input for text/CSV rows with source, target, and timestamp columns.
-- Deterministic edge IDs for input edges that do not include IDs.
-- `presence_at(t)`, `active_nodes(t)`, and `active_edges(t)`.
-- CSV and JSON export of parsed graphs.
-- A minimal single-level DynNoSlice-style dynamic layout.
-- Snapshot, aspect-ratio scaling, and layout metrics for flat small-multiple studies.
-
-## Custom Input Format
-
-Node file:
+## Repository structure
 
 ```text
-<Node ID>,<Start Time>,<Duration>
-Alice,1,5
-Bob,2,4.6
+.
+├── README.md
+├── LICENSE
+├── NOTICE
+├── requirements.txt
+├── multidynnos_py/       # Core implementation, CLI, packaging, and small input examples
+├── raw/                 # Input datasets
+├── samples/             # Published layout results and reproduction commands
+├── viewer.html          # Interactive HTML snapshot viewer
+└── view_snapshots.ipynb  # Visualization of saved results
 ```
 
-Edge file:
+Generated results are saved under `output/`, which is excluded from Git.
+Local experiments, tests, evaluation code, and archived material are excluded
+from the public repository.
 
-```text
-<Source Node ID>,<Target Node ID>,<Start Time>,<Duration>
-Alice,Bob,2.5,1
-Bob,Carol,2.1,0.6
-```
+## Installation
 
-## Edge-Event Input
+The pinned `requirements.txt` targets the `aspgd` environment, tested with Python
+3.11.15. Use Python 3.11 to reproduce it. It includes the core implementation,
+Numba acceleration, notebook tools, and dependencies used by local analysis and
+tests. Initial XY coordinates use NetworkX `spring_layout` by default.
+To select Graphviz initialization with `--graphviz`, install Graphviz separately
+with `sfdp` available on PATH; run `sfdp -V` to check it. Java is not required.
 
-Single-file interaction logs are also supported. Rows may be whitespace-delimited or CSV:
-
-```text
-1 2 1082040961
-3 4 1082155839
-```
-
-CSV files may include headers, including reordered columns:
-
-```csv
-timestamp,source,target
-1082040961,1,2
-1082155839,3,4
-```
-
-```python
-from multidynnos_py import load_edge_event_graph
-
-graph = load_edge_event_graph("tests/test_data.txt")
-csv_graph = load_edge_event_graph("events.csv", has_header=True)
-```
-
-## CLI
+Run these commands from the repository root:
 
 ```bash
-multidynnos-py parse nodes.csv edges.csv --json graph.json
-multidynnos-py parse nodes.csv edges.csv --nodes-csv out_nodes.csv --edges-csv out_edges.csv
-multidynnos-py parse nodes.csv edges.csv --at 2.5
-multidynnos-py layout nodes.csv edges.csv --method single --json single_layout.json
-multidynnos-py layout nodes.csv edges.csv --method multi --json multi_layout.json
-multidynnos-py layout-events raw/rugby.csv --method multi
-multidynnos-py layout-events --input_path raw/rugby.csv --output_path output/rugby --method multi
-multidynnos-py layout-events raw/rugby.csv --method multi --visualize 8
-multidynnos-py layout-events raw/rugby.csv --method multi --visualize 8 --show-labels
-multidynnos-py layout-events raw/collegemsg.csv --method multi --time-bins 8 --visualize 8
-multidynnos-py layout-events raw/collegemsg.csv --method multi --event-bins 64 --visualize
-multidynnos-py layout-events --input_path raw/rugby.csv --output_path output/rugby_0.5 --method multi --time-bins 64 --visualize 64 --aspect-ratio 0.5
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m multidynnos_py --help
 ```
 
-When working in the project conda environment:
+On Windows PowerShell, activate the virtual environment with `.venv/Scripts/Activate.ps1`.
+To install only the core implementation (Python 3.10 or later), use
+`python -m pip install -e ./multidynnos_py`.
+
+The full requirements already include Numba. To add acceleration to a core-only installation:
 
 ```bash
-conda run -n aspgd multidynnos-py parse nodes.csv edges.csv --json graph.json
-conda run -n aspgd multidynnos-py layout nodes.csv edges.csv --method multi --json layout.json
-conda run -n aspgd python -m multidynnos_py.cli layout-events raw/rugby.csv --method multi
-conda run -n aspgd python -m multidynnos_py.cli layout-events --input_path raw/rugby.csv --output_path output/rugby --method multi
-conda run -n aspgd python -m multidynnos_py.cli layout-events raw/rugby.csv --method multi --visualize 8
-conda run -n aspgd python -m multidynnos_py.cli layout-events raw/collegemsg.csv --method multi --time-bins 8 --visualize 8
-conda run -n aspgd python -m multidynnos_py.cli layout-events raw/collegemsg.csv --method multi --event-bins 64 --visualize
-conda run -n aspgd python -m multidynnos_py.cli layout-events --input_path raw/rugby.csv --output_path output/rugby_0.5 --method multi --time-bins 64 --visualize 64 --aspect-ratio 0.5
-conda run -n aspgd python -m pytest
+python -m pip install -e './multidynnos_py[fast]'
 ```
 
-When a layout command is run without `--json`, the layout is written to `output/<dataset-name>/layout.json`.
-For event layouts, `--input_path` can be used instead of the positional input file, and `--output_path` sets the exact result directory. For example, `--output_path output/rugby` writes `layout.json`, `snapshots/`, and `figures/` under `output/rugby/`.
-Use `--aspect-ratio R` to affine-scale generated layout coordinates to `width / height = R` before writing `layout.json` and before rendering figures. For example, `--aspect-ratio 0.5` makes the layout width half of its height.
-When `--visualize N` is supplied to `layout` or `layout-events`, the command also renders `N` edge-aware snapshots to `output/<dataset-name>/figures/`. If `--visualize` is supplied without `N`, all currently available bins are rendered.
-Rendered snapshot figures omit titles by default.
-For large event datasets, `--time-bins N` aggregates raw event timestamps into `N` uniform temporal bins before layout; if omitted, the original event timestamps are used.
-Use `--event-bins K` instead to split the input stream in order into exactly `K` event-count bins. Event-bin layouts use bin indices as the layout time axis.
-When `--time-bins N` or `--event-bins K` is used, the binned static graph for each bin is also written as headerless directed `src,dst,count` CSV files:
+## Usage
 
-```text
-output/<dataset-name>/snapshots/
-  snapshot_000.csv
-  snapshot_001.csv
-```
-
-When `layout-events` uses `--time-bins N --visualize` or `--event-bins K --visualize`, each figure filters visible nodes to the source/target IDs present in the matching `snapshot_XXX.csv` file. `render-snapshots` also uses a sibling `snapshots/` directory by default when every required `snapshot_XXX.csv` file exists. This keeps the rendered node set aligned with the exported binned event graph.
-
-## Layout And Small-Multiple Export
-
-```python
-from pathlib import Path
-
-from multidynnos_py import (
-    DynNoSliceConfig,
-    MultiDynNoSConfig,
-    export_small_multiples_data,
-    load_custom_graph,
-    run_multidynnos,
-)
-
-graph = load_custom_graph("nodes.csv", "edges.csv")
-layout = run_multidynnos(
-    graph,
-    MultiDynNoSConfig(dynnoslice_config=DynNoSliceConfig(iterations=50, seed=73)),
-)
-export_small_multiples_data(layout, times=[0.0, 1.0, 2.0], out_path=Path("small_multiples.json"))
-```
-
-Aspect-ratio utilities can be used directly:
-
-```python
-from multidynnos_py import affine_scale_layout, compute_aspect_ratio
-
-wide_layout = affine_scale_layout(layout, target_aspect_ratio=4.0)
-ratio = compute_aspect_ratio(wide_layout)
-```
-
-Available research metrics:
-
-```python
-from multidynnos_py import crowding_metric, movement_metric, sample_snapshots
-
-snapshots = sample_snapshots(layout, [0.0, 1.0, 2.0])
-movement = movement_metric(layout)
-crowding = crowding_metric(snapshots[0])
-```
-
-## Rendering Static Snapshots From A Layout JSON
-
-Render uniformly spaced static node-link snapshots from an existing layout JSON:
+Run the small event example:
 
 ```bash
-python -m multidynnos_py.cli render-snapshots \
-  --layout output/rugby/layout.json \
-  --num-snapshots 8 \
-  --edges raw/rugby.csv \
-  --snapshot-nodes-dir output/rugby/snapshots \
-  --show-labels \
-  --output-root output
+python -m multidynnos_py multidynnos_py/examples/events.json --repulsion-backend numpy -o output/events.json
 ```
 
-By default, each snapshot uses `--position-policy mean_in_window`, so node positions are the mean of that node's layout samples inside the temporal bin.
-
-If the layout JSON has no edge data and no edge CSV is available, render nodes only explicitly:
+Run the Newcomb dataset with the default layout or an aspect ratio adjustment:
 
 ```bash
-python -m multidynnos_py.cli render-snapshots \
-  --layout output/rugby/layout.json \
-  --num-snapshots 8 \
-  --allow-nodes-only \
-  --output-root output
+python -m multidynnos_py raw/newcomb --repulsion-backend numpy -o output/newcomb.json
+python -m multidynnos_py raw/newcomb --repulsion-backend numpy --aspect-ratio 3 -o output/newcomb_ar3.json
 ```
 
-Figures and metadata are written to:
+Also adjust the initial coordinates to width:height = 1:3, using either initializer:
 
-```text
-output/<dataset-name>/figures/
-  snapshot_000.png
-  snapshot_001.png
-  snapshots_manifest.json
+```bash
+python -m multidynnos_py raw/newcomb --aspect-ratio 3 --initial-ratio -o output/newcomb_spring_initial_ar3.json
+python -m multidynnos_py raw/newcomb --graphviz --aspect-ratio 3 --initial-ratio -o output/newcomb_graphviz_initial_ar3.json
 ```
+
+To download Newcomb instead of using local input, replace `raw/newcomb` with
+`--dataset newcomb`. Published samples and the commands used to generate them
+are described in [samples/README.md](samples/README.md).
+
+| Option | Description |
+| --- | --- |
+| `--algorithm multi`, `single`, `static` | Multilevel MultiDynNoS, single-level DynNoSlice, or static initial layout; default: `multi`. `sfdp` is a legacy alias for `static`. |
+| `--graphviz` | Use Graphviz for initial XY coordinates; otherwise use NetworkX `spring_layout`, including with the `sfdp` alias |
+| `--graphviz-engine sfdp`, `fdp` | Engine used with `--graphviz`; default: `sfdp` |
+| `--aspect-ratio N` | Target width:height = 1:N; N is height/width |
+| `--aspect-ratio-fit exact`, `none` | Whether to fit the final global XY bounding box of all trajectories; default: `exact` |
+| `--initial-ratio` | Also adjust initial XY coordinates using the N from `--aspect-ratio N`; accepts no value of its own |
+| `--tau T` | Set the time-axis scale explicitly; uses AutoTau when omitted |
+| `--manual-tau` | Use the dataset's recommended time-axis scale; 5 for Newcomb |
+| `--iterations N` | Initial iteration count; defaults: 75 for multi, 100 for single |
+| `--seed N` | Initialization seed; default: 0 |
+| `--repulsion-backend auto`, `numpy`, `numba` | Repulsion implementation; default: `auto` |
+| `--threads N` | Number of threads for Numba repulsion |
+
+Omitting the aspect ratio option disables aspect ratio adjustment for the chosen
+initializer. To retain the previous Graphviz initialization, pass `--graphviz`.
+`--aspect-ratio 1` applies a square adjustment, so it differs from omitting the
+option. `exact` fits the global bounding box of trajectories across all times;
+it does not guarantee the same ratio for each individual snapshot. The ARCOL
+correction is added to the XY forces, and the final bounding box fit is applied
+after optimization.
+
+`--initial-ratio` applies before dynamic refinement: on the coarsest graph for
+`multi`, or on the input graph for `single` and `static`. For Spring coordinates,
+let W and H be the node-center bounding-box dimensions. If H/W is below N, only
+Y is expanded by N/(H/W); if it is above N, only X is expanded by (H/W)/N.
+Scaling is centered on the bounding-box center, and neither axis is shrunk.
+A zero-width or zero-height box is left unchanged because scaling cannot give
+it a finite positive ratio. This transformation changes only XY coordinates.
+
+This follows Graphviz's [numeric `ratio` axis-expansion rule](https://graphviz.org/docs/attrs/ratio/).
+With `--graphviz`, the existing `-Gratio=N` request is passed to Graphviz itself;
+node sizes and drawing extents mean its node-center ratio may be approximate.
+Spring uses node centers directly, so the two initializers do not produce the
+same coordinates or coordinate scale. NetworkX's other `spring_layout` defaults
+are retained, including their version-dependent choice of layout method;
+`--seed` sets its random seed (reduced modulo 2^32 for NetworkX). Spring uses an
+undirected graph with edge-presence durations as weights; parallel and opposite
+edges contribute summed weights. Its default coordinate scale is 1, rather than
+Graphviz's inches. Dynamic ARCOL forces and final fitting are independent of
+this initializer choice. The `single` algorithm now also computes initial XY
+with the selected backend, replacing supplied coordinates rather than retaining
+them or scattering missing positions as before.
+
+## Input and output
+
+Input examples are available in [events.json](multidynnos_py/examples/events.json)
+and [snapshots.json](multidynnos_py/examples/snapshots.json).
+
+- Event JSON: node and edge lifetimes expressed as `start/end`, `start/duration`, `intervals`, or `presence`.
+- Timesliced JSON: graphs at each time in `snapshots` or `timeslices`.
+- CSV: `source,target,start,duration` for edges and `id,start,duration` in an optional `--nodes` file.
+- Three-column `source,target,timestamp` CSV: requires `--event-duration` in the same time units as the input.
+- Newcomb: a directory or ZIP containing `newfratNN.csv` rank matrices.
+
+See [raw/README.md](raw/README.md) for the datasets in `raw/`.
+Output JSON contains `graphnodes`, `graphedges`, and `metadata`. Each node's
+`position` stores time intervals and their endpoint XY coordinates, with linear
+interpolation within each interval. Times are saved in the original input units.
+Use `--format interval-map` to store intervals as JSON keys, or `--no-metadata`
+to omit metadata.
+
+Python API:
+
+```python
+from multidynnos_py.io import load_graph, save_graph
+from multidynnos_py.multilevel import layout
+
+graph = load_graph("multidynnos_py/examples/events.json")
+result = layout(graph, seed=0, aspect_ratio=3, repulsion_backend="numpy")
+save_graph(result, "output/events_ar3.json")
+```
+
+Pass `graphviz=True` to `layout` for Graphviz initialization and
+`initial_ratio=True` to also apply the requested `aspect_ratio` during
+initialization. The low-level `static_layout` function remains a Graphviz utility.
+
+## Sample visualization
+
+Open `view_snapshots.ipynb` in your notebook editor and select the Python
+environment where the requirements are installed. The requirements include
+IPython and the kernel; JupyterLab is not installed in the reference `aspgd`
+environment. To use the JupyterLab interface, install it separately:
+
+```bash
+python -m pip install jupyterlab
+jupyter lab view_snapshots.ipynb
+```
+
+Set the three values in the first notebook cell, then run all cells:
+
+```python
+JSON_PATH = "samples/newcomb/layout.json"
+N_COLUMNS = 24
+VISIBLE_COLUMNS = 4
+```
+
+`N_COLUMNS` divides the full time range into that many snapshots.
+`VISIBLE_COLUMNS` sets how many snapshots appear side by side. The notebook
+embeds `viewer.html` with the selected dataset. Use the top slider to move
+through the horizontal snapshot strip, the mouse wheel to zoom, and drag to pan.
+Each panel includes all nodes and edges present during its time window, with
+node coordinates averaged over their presence duration. All panels share the
+same coordinate range and scale; the stored layout is not recomputed.
+Uncheck **Isolated nodes** to hide nodes with no incident edge in each snapshot's
+time window. Counts and **Fit visible** follow this filter. **Edges** independently
+controls whether edge lines are drawn.
+An offline HTML copy is saved to `output/snapshot_previews/<input_stem>_viewer.html`.
+
+## Upstream and license
+
+This implementation is based on [EngAAlex/MultiDynNos](https://github.com/EngAAlex/MultiDynNos)
+at commit `068aa79680b7d670d2338493bc9c88f4ffbd3db6`. It ports the core algorithm
+to Python and includes corrected AutoTau calculations, ARCOL aspect ratio forces,
+and optional Numba acceleration. It does not include all upstream parsers for
+specific datasets or the upstream GUI.
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the code license and attribution.

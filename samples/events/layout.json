@@ -1,0 +1,182 @@
+{
+  "graphnodes": [
+    {
+      "id": "a",
+      "position": [
+        {
+          "string": "[0.0,8.0] : (-2.109056157351611, -1.0682852291498597),(-2.0211796403009927, -0.43772961763500934)"
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "position": [
+        {
+          "string": "[0.0,8.0] : (-4.971071602195847, 4.046994601465827),(-5.450534223433754, 4.2106338376096195)"
+        }
+      ]
+    },
+    {
+      "id": "c",
+      "position": [
+        {
+          "string": "[1.25,8.0] : (0.6976535164746115, 5.340322503676394),(1.0317533226834215, 4.838106672834637)"
+        }
+      ]
+    }
+  ],
+  "graphedges": [
+    {
+      "id": "ab",
+      "source": "a",
+      "target": "b",
+      "presence": [
+        {
+          "string": "[0.0,2.5] : true,true"
+        },
+        {
+          "string": "(4.0,8.0] : true,true"
+        }
+      ]
+    },
+    {
+      "id": "bc",
+      "source": "b",
+      "target": "c",
+      "presence": [
+        {
+          "string": "[1.25,4.75] : true,true"
+        }
+      ]
+    },
+    {
+      "id": "ac",
+      "source": "a",
+      "target": "c",
+      "presence": [
+        {
+          "string": "[5.0,8.0] : true,true"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "detection_reason": "explicit event/interval schema",
+    "presence_mode": "plain",
+    "load_mode": "plain",
+    "source": "multidynnos_py/examples/events.json",
+    "tau_estimation": {
+      "method": "MultiDynNoS AutoTau equation (2)",
+      "paper_doi": "10.1111/cgf.14615",
+      "load_mode": "plain",
+      "preserves_upstream_edge_span_bug": false,
+      "iteration_order": "order-independent",
+      "nodes": {
+        "interval_count": 3,
+        "total_duration": 22.75,
+        "time_span": 8.0
+      },
+      "edges": {
+        "interval_count": 4,
+        "total_duration": 13.0,
+        "time_span": 8.0
+      },
+      "degenerate_fallback": false
+    },
+    "layout": {
+      "algorithm": "multi",
+      "delta": 5.0,
+      "tau": 0.31919642857142855,
+      "tau_source": "automatic",
+      "seed": 0,
+      "bend_transfer": false,
+      "graphviz_engine": "sfdp",
+      "initial_ratio": false,
+      "repulsion_backend": "numpy",
+      "num_threads": null,
+      "upstream_revision": "068aa79680b7d670d2338493bc9c88f4ffbd3db6",
+      "initialization": {
+        "method": "graphviz",
+        "enabled": false,
+        "requested_height_over_width": null,
+        "engine": "sfdp",
+        "level": 1,
+        "node_count": 1,
+        "command": [
+          "/usr/bin/sfdp",
+          "-Tjson"
+        ],
+        "status": "completed",
+        "node_center_geometry": {
+          "point_count": 1,
+          "width": 0.0,
+          "height": 0.0,
+          "height_over_width": null,
+          "std_height_over_width": null,
+          "centroid": [
+            0.5,
+            0.5
+          ]
+        },
+        "node_center_coordinate_unit": "inches",
+        "graphviz_bounding_box": {
+          "raw": "0,0,72,72",
+          "coordinate_unit": "points",
+          "bounds": [
+            0.0,
+            0.0,
+            72.0,
+            72.0
+          ],
+          "width": 72.0,
+          "height": 72.0,
+          "height_over_width": 1.0,
+          "status": "reported"
+        },
+        "exact_node_center_ratio_guaranteed": false,
+        "scope": "initial static graph only, before dynamic refinement and final aspect-ratio fitting",
+        "ratio_semantics": "Graphviz graph ratio and measured node-center bbox/std ratios are distinct; no extra center fitting is applied"
+      },
+      "hierarchy_sizes": [
+        3,
+        1
+      ],
+      "levels": [
+        {
+          "level": 1,
+          "nodes": 1,
+          "edges": 0,
+          "max_movement": 10.0,
+          "requested_iterations": 75,
+          "statistics": {
+            "iterations": 0,
+            "skipped": "coarsest graph has at most one node"
+          }
+        },
+        {
+          "level": 0,
+          "nodes": 3,
+          "edges": 3,
+          "max_movement": 8.6,
+          "requested_iterations": 65,
+          "statistics": {
+            "iterations": 65,
+            "initial_mirror_points": 6,
+            "final_mirror_points": 6,
+            "bends_inserted": 0,
+            "bends_removed": 0,
+            "max_applied_movement": 4.638708382003423,
+            "repulsion_backend": "numpy",
+            "repulsion_threads": null,
+            "elapsed_seconds": 0.07157388299947343
+          }
+        }
+      ]
+    },
+    "tau": 0.31919642857142855,
+    "data_type": "event",
+    "directed": false,
+    "coordinate_system": "(x,y,time); time is the interval endpoint",
+    "format": "timelighting"
+  }
+}

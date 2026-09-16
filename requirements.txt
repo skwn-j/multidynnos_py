@@ -1,0 +1,29 @@
+# Project dependencies pinned to the aspgd environment (Python 3.11.15).
+# Install from the repository root: python -m pip install -r requirements.txt
+# Graphviz is optional: --graphviz requires sfdp/fdp on PATH.
+
+# Core layout and accelerated repulsion.
+numpy==2.4.6
+networkx==3.6.1
+scipy==1.17.1
+numba==0.66.0
+
+# Notebook display, kernel, and execution/validation tools.
+ipython==9.14.0
+ipykernel==7.2.0
+nbformat==5.11.1
+nbclient==0.11.0
+
+# Local analysis and readability metrics (analysis code is Git-ignored).
+matplotlib==3.10.9
+geg-metrics==0.2.3
+
+# Archived analysis scripts and the full readability notebook.
+pandas==3.0.3
+tqdm==4.67.3
+
+# Local tests.
+pytest==9.0.3
+
+# Install this repository's package and its multidynnos command.
+-e ./multidynnos_py

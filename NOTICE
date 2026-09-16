@@ -1,0 +1,12 @@
+MultiDynNoS Python port
+
+Derived from https://github.com/EngAAlex/MultiDynNos
+Upstream commit: 068aa79680b7d670d2338493bc9c88f4ffbd3db6
+Copyright 2014-2017 Paolo Simonetto
+Copyright 2020-2021 Alessio Arleo
+Licensed under the Apache License, Version 2.0.
+
+The Python files implement selected Java algorithm and temporal-data classes.
+GUI, rendering, research experiment scripts and metrics are outside this port.
+The Python port changes AutoTau estimation and adds ARCOL aspect-ratio forces
+and optional Numba repulsion acceleration. See README.md for usage and behavior.

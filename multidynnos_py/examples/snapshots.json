@@ -1,0 +1,10 @@
+{
+  "data_type": "timesliced",
+  "nodes": ["a", "b", "c", "d"],
+  "snapshots": [
+    {"time": 1, "edges": [["a", "b"], ["b", "c"]]},
+    {"time": 2, "edges": [["a", "b"], ["c", "d"]]},
+    {"time": 3, "edges": [["b", "c"], ["a", "d"]]},
+    {"time": 4, "edges": [["c", "d"], ["a", "d"]]}
+  ]
+}

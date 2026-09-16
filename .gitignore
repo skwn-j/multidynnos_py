@@ -72,6 +72,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Local research references
+references/*.pdf
+
 # PyBuilder
 .pybuilder/
 target/
@@ -220,3 +223,16 @@ __marimo__/
 .streamlit/secrets.toml
 
 output/
+
+# Local experiments and unpublished reference material
+/local_archive/
+/tmp/
+/golden/
+/.agents/
+/.codex/
+/AGENT.md
+/tests/
+/multidynnos_py/analysis/
+/multidynnos_py/tests/
+/multidynnos_py/geg_readability.py
+/multidynnos_py/snapshot_readability.py
